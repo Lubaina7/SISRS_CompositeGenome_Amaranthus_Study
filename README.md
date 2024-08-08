@@ -1,5 +1,7 @@
 # SISRS Amaranthus Whole Genome Barcode Discovery Pipeline
 
+![Screenshot 2024-08-07 at 9 31 50 PM](https://github.com/user-attachments/assets/ceb749bf-acbe-4223-bcbe-f7808cb1c60b)
+
 # 1. Quality Control of Sequences
 
 1.1 Perform FastQC Check Run FastQC to check the quality of the raw sequencing data. 
