@@ -9,8 +9,8 @@ Here's a structured README for your SISRS project, formatted similarly to the ex
 
 # Running SISRS for Amaranthus Genomic Barcode Development
 
-### Dr. [Your Name]  
-[Your Institution]
+### Lubaina Kothari   
+University of Guelph - Masters of Bioinformatics Internship
 
 This repository provides a comprehensive guide for using the SISRS pipeline to identify diagnostic SNPs for species-specific orthologs in the *Amaranthus* genus. It outlines each step from data organization to final SNP analysis and includes detailed commands and scripts.
 
