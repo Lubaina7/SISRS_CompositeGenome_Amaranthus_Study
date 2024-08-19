@@ -3,23 +3,46 @@
 ![Screenshot 2024-08-07 at 9 31 50 PM](https://github.com/user-attachments/assets/ceb749bf-acbe-4223-bcbe-f7808cb1c60b)
 
 Referenced from the original SISRS : https://github.com/BobLiterman/2024_SISRS_General.git
-Here's a structured README for your SISRS project, formatted similarly to the example you provided:
+
 
 ---
 
-# Running SISRS for Amaranthus Genomic Barcode Development
+# **Running SISRS for Amaranthus Genomic Barcode Development**
 
 ### Lubaina Kothari   
-University of Guelph - Masters of Bioinformatics Internship
+University of Guelph - Masters of Bioinformatics Internship  
+In collaboration with the MIRL lab at CFIA
 
 This repository provides a comprehensive guide for using the SISRS pipeline to identify diagnostic SNPs for species-specific orthologs in the *Amaranthus* genus. It outlines each step from data organization to final SNP analysis and includes detailed commands and scripts.
 
 ---
 
-## Dependencies
+## **Set Up Environment and Dependencies**
 
-Before you begin, ensure you have the following software installed:
+Before you begin, ensure to have the following software installed. Using **mamba** is recommended to efficiently manage dependencies.
 
+### Install Mamba
+```bash
+curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+bash Miniforge3-$(uname)-$(uname -m).sh # By default, this installs in ~/miniforge3
+```
+
+### Create Your Environment
+```bash
+mamba create --prefix /path/to/env/location/ python=3.10
+```
+
+### Activate the Environment
+```bash
+mamba activate /path/to/env/location/
+```
+
+### Install Required Packages
+```bash
+mamba install -c conda-forge bioconda samtools bowtie2 bbmap fastqc trimmomatic
+```
+
+### Ensure the Following Packages are Installed:
 - **FastQC** (v0.11.9)
 - **BBTools** (BBDuk v38.84)
 - **GetOrganelle** (v1.7.5)
@@ -30,14 +53,21 @@ Before you begin, ensure you have the following software installed:
 - **IQ-TREE** (v2.0.6)
 - **BEDTools** (v2.29.2)
 
+### Clone the SISRS Repository
+Next, clone the SISRS repository to access all necessary scripts for the pipeline.
+```bash
+# Clone the SISRS repository
+git clone https://github.com/BobLiterman/SISRS.git
+cd SISRS
+```
+
 ---
 
-## Step 1: Quality Filtering and Trimming
+## **Step 1: Quality Filtering and Trimming**
 
 ### Description
 Perform quality control on raw sequencing data using FastQC, followed by trimming of adapters and low-quality bases using BBDuk.
 
-### Command
 ```bash
 # FastQC quality check
 fastqc *.fastq
@@ -47,38 +77,74 @@ bbduk.sh in1=R1.fastq in2=R2.fastq out1=R1_trimmed.fastq out2=R2_trimmed.fastq r
 ```
 
 ### Output
-- Quality reports (`.html` and `.zip` files)
-- Trimmed FASTQ files (`R1_trimmed.fastq`, `R2_trimmed.fastq`)
+- **Quality reports** (`.html` and `.zip` files)
+- **Trimmed FASTQ files** (`R1_trimmed.fastq`, `R2_trimmed.fastq`)
 
 ---
 
-## Step 2: Pan Plastid Genome Assembly and Nuclear Read Extraction
+## **Step 2: Running BBMerge for Plastid Assembly (Optional)**
+
+### Description
+Optionally, use BBMerge to merge paired-end reads, increasing the length of reads for better plastid assembly in GetOrganelle. Note: The reads can be left as paired and not merged as well for pan-plastid assembly.
+
+```bash
+# Loop through all R1 files to merge paired-end reads
+for r1 in trimmed_*_R1_*.fastq.gz; do
+  r2=${r1/_R1_/_R2_}
+  merged_out="merged_${r1/_R1_001.fastq.gz/_merged.fastq.gz}"
+  unmerged_out1="unmerged_${r1}"
+  unmerged_out2="unmerged_${r2}"
+  bbmerge.sh in1=$r1 in2=$r2 out=$merged_out outu1=$unmerged_out1 outu2=$unmerged_out2
+done
+```
+
+---
+
+## **Step 3: Pan Plastid Genome Assembly and Nuclear Read Extraction**
 
 ### Description
 Construct a pan-plastid genome to enrich nuclear reads by removing plastid contamination. Use GetOrganelle for assembly and BBDuk for extraction.
 
-### Command
 ```bash
-# Assemble plastid genomes using GetOrganelle
-get_organelle_from_reads.py -1 R1_trimmed.fastq -2 R2_trimmed.fastq -o output_directory -R 10 -k 21,45,65,85,105
+# Activate the correct environment for GetOrganelle
+source activate amaranthus_env
+
+# Run GetOrganelle for each sample
+OUTPUT_DIR="getOrganelle_output"
+ORGANELLE_TYPE="embplant_pt"
+
+mkdir -p $OUTPUT_DIR
+
+for r1 in trimmed_*_R1_*.fastq.gz; do
+  r2=${r1/_R1_/_R2_}
+  get_organelle_from_reads.py -1 $r1 -2 $r2 -o $OUTPUT_DIR -k 21,45,65,85,105 -R 50 -F $ORGANELLE_TYPE --overwrite
+done
 
 # Combine assembled plastids to form the pan-plastid genome
-cat output_directory/*.fasta > pan_plastid.fasta
+cat $OUTPUT_DIR/*.fasta > pan_plastid.fasta
 
 # Extract plastid reads using BBDuk
-bbduk.sh in1=R1_trimmed.fastq in2=R2_trimmed.fastq out1=R1_nuclear.fastq out2=R2_nuclear.fastq ref=pan_plastid.fasta k=31 hdist=1
+bbduk.sh in1=trimmed_R1.fastq.gz in2=trimmed_R2.fastq.gz outu1=R1_nuclear.fastq.gz outu2=R2_nuclear.fastq.gz ref=pan_plastid.fasta k=31 hdist=1 outu=R1_nuclear.fastq.gz
 ```
 
 ### Output
-- Pan-plastid genome (`pan_plastid.fasta`)
-- Nuclear-enriched FASTQ files (`R1_nuclear.fastq`, `R2_nuclear.fastq`)
+- **Pan-plastid genome** (`pan_plastid.fasta`)
+- **Nuclear-enriched FASTQ files** (`R1_nuclear.fastq.gz`, `R2_nuclear.fastq.gz`)
 
 ---
 
-## Step 3: Composite Genome Assembly
+## **Step 4: Subset Reads**
 
 ### Description
-Organize reads by species and subset them equally to ensure balanced representation in the composite genome. Use the Ray assembler to construct the composite genome.
+Organize reads by species and subset them equally to ensure balanced representation in the composite genome. Subsetting is performed based on desired coverage for the composite genome and the average genome size of the species. In this study, 10X coverage was used for a 0.5Gb average genome size in *Amaranthus* species. The custom SISRS script `read_subsetter.py` is used for this step.
+
+### Note
+If your input reads are not named `_1/_2.fastq.gz`, adjust `Read_Subsetter.py`:
+```bash
+sed -i 's/_1.fastq.gz/_R1.fastq/g' Read_Subsetter.py
+sed -i 's/_2.fastq.gz/_R2.fastq/g' Read_Subsetter.py
+sed -i 's/fastq.gz/fastq/g' Read_Subsetter.py
+```
 
 ### Command
 ```bash
@@ -89,143 +155,105 @@ mkdir -p Species_B; mv R1_nuclear.fastq R2_nuclear.fastq Species_B/
 # Subset reads using SISRS read_subsetter.py script
 python read_subsetter.py -d Species_A -s 10 -g 500M
 python read_subsetter.py -d Species_B -s 10 -g 500M
+```
 
+### Output
+- **Subsetted FASTQ files** for each species.
+
+---
+
+## **Step 5: Composite Genome Assembly**
+
+### **Step 5.1: Assemble Composite Genome**
+
+### Description
+Assemble the composite genome using Ray, ensuring that the output directory starts with "Ray_" as per Ray's requirements.
+
+```bash
 # Assemble the composite genome with Ray
-mpirun -np 4 Ray -k 31 -o composite_genome -s Species_A/subset_R1.fastq -p Species_A/subset_R1.fastq Species_A/subset_R2.fastq
+mpirun -n 100 Ray -k 31 -detect-sequence-files /projects/SISRS_Project/Composite_Reads -o $output_dir
 ```
 
 ### Output
-- Composite genome assembly (`composite_genome/Contigs.fasta`)
+- **Composite genome assembly** (`composite_genome/Contigs.fasta`)
 
----
-
-## Step 4: Mapping and Indexing
+### **Step 5.2: Prepare Composite Genome**
 
 ### Description
-Map the sample reads to the composite genome using Bowtie2 and create an index to facilitate efficient mapping.
+Use a custom script to prepare the composite genome, which includes renaming contigs, indexing, and generating site lengths. Ensure directory paths are accurate before running the script.
 
-### Command
 ```bash
-# Build Bowtie2 index
-bowtie2-build composite_genome/Contigs.fasta composite_genome
-
-# Map reads back to the composite genome
-bowtie2 -x composite_genome -1 R1_nuclear.fastq -2 R2_nuclear.fastq -S sample_mapped.sam
-
-# Convert SAM to BAM and sort
-samtools view -bS sample_mapped.sam | samtools sort -o sample_mapped_sorted.bam
+./prepare_Composite.sh
 ```
 
 ### Output
-- Indexed composite genome (`.bt2` files)
-- Sorted BAM files (`sample_mapped_sorted.bam`)
+- **Prepared composite genome** with contigs renamed and indexed.
 
 ---
 
-## Step 5: Sample-Specific Ortholog Generation
+## **Step 6: Fixed Allele Calling**
 
 ### Description
-Generate orthologous sequences for each species by mapping, identifying fixed alleles, and filtering based on missing data and gaps.
+Map each sample to the composite genome to generate sample-specific orthologs. This step only allows for uniquely mapped reads against the composite genome. A strict homozygosity filter is applied based on study requirements. In this study, a minimum of 5 reads for 100% fixed alleles was explicitly specified.
 
-### Command
 ```bash
-# Generate fixed allele alignment
-python Output_SISRS.py -a composite_genome/Contigs.fasta -b Species_A.bam -c Species_B.bam -o fixed_alleles_alignment
+# Generate SISRS mapping scripts using 64 processors, requiring 5 reads of coverage, and 100% fixed alleles
+python Mapping/baseScipts/generate_sisrs_scripts.py 64 5 1
 
-# Filter alignment for missing data and gaps
-python filter_nexus_for_missing.py fixed_alleles_alignment.nex 0
+# Navigate to the directory containing the generated scripts
+cd /projects/SISRS_Project/test_fastq/Analysis_Dir/Mapping/SISRS_Run/Species_Reads/
+
+# Submit each SLURM script
+for script in */*.sh; do
+  sbatch $script
+done
 ```
 
 ### Output
-- Filtered alignments (`filtered_alignment.nex`, `filtered_alignment.phylip-relaxed`)
+- **Mapped orthologs** for each sample.
 
 ---
 
-## Step 6: Phylogenetic Tree Construction
+## **Step 7: Alignment and Ortholog Generation**
 
 ### Description
-Construct phylogenetic trees using the filtered alignments with IQ-TREE.
+Use `Output_SISRS.py` to align reads and generate species-specific orthologs. Filter alignments to remove gaps and missing data.
 
-### Command
 ```bash
-iqtree -nt AUTO -s filtered_alignment.phylip-relaxed -m MFP+MERGE+ASC -bb 1000
+# Ensure paths are correctly specified in Output_SISRS.py and get_alignment.py
+python Output_SISRS.py
+
+# Filter alignments to remove gaps and missing data
+python baseScipts/filter_nexus_for_missing.py alignment_singletons.nex
+
+ 0
+python baseScipts/filter_nexus_for_missing.py alignment_pi.nex 0
 ```
 
 ### Output
-- Phylogenetic tree files (`.treefile`, `.contree`, `.log`)
+- **Alignment files** (`alignment.nex`, `alignment_singletons.nex`, `alignment_pi.nex`, `alignment_pi_singletons.nex`, `alignment_bi.nex`)
+- **Filtered alignments** (`alignment_singletons_m0.phylip-relaxed`, `alignment_pi_m0.phylip-relaxed`)
 
 ---
 
-## Step 7: Species-Specific SNP Identification
+## **Step 8: Phylogenetic Analysis for Species Pooling**
 
 ### Description
-Identify species-specific SNPs using the filtered alignments and generate a BED file for downstream analysis.
+Construct a phylogenetic tree to observe how samples group against the composite genome. Groupings should indicate whether the expected samples are within their clades, ensuring an effective composite genome. Use the parsimony-informative alignment file (`alignment_pi.nex`) for tree generation.
 
-### Command
 ```bash
-# Extract SNPs using alignment_slicer.py
-python alignment_slicer.py filtered_alignment.phylip-relaxed species_specific_SNPs.bed
-
-# Convert SNPs to BED format
-awk '{print $1 "\t" $2-1 "\t" $2}' species_specific_SNPs.bed > species_specific_SNPs.bed
+iqtree -nt AUTO -s alignment_pi_m0.phylip-relaxed -m MFP+MERGE+ASC -bb 1000
 ```
 
 ### Output
-- BED file with species-specific SNPs (`species_specific_SNPs.bed`)
+- **Phylogenetic tree files** (`.treefile`, `.contree`, `.log`)
 
 ---
 
-## Step 8: Downstream Analysis and Validation
+## **Step 9: Species-Specific SNP Identification**
 
 ### Description
-Use BEDTools to analyze dense SNP regions and Rboretum for SNP validation and species classification.
-
-### Command
-```bash
-# Identify dense SNP regions with BEDTools
-bedtools cluster -i species_specific_SNPs.bed
-
-# Perform SNP validation using Rboretum in R
-Rscript validate_SNPs.R species_specific_SNPs.bed
-```
-
-### Output
-- SNP clusters (`.bed`)
-- Validation results (`SNP_validation_report.txt`)
+Perform all steps for mapping, alignment, and filtering, but this time as pooled samples of a species to generate species-specific fixed alleles. These will be found in the output singletons file.
 
 ---
 
-This README provides a detailed guide to execute each step of the SISRS pipeline, including the necessary commands and expected outputs. For more information and additional scripts, please refer to the scripts in this repository.# 1. Quality Control of Sequences
-
-1.1 Perform FastQC Check Run FastQC to check the quality of the raw sequencing data. 
-mkdir -p FastQC_Reports fastqc -o FastQC_Reports raw_data/*.fastq.gz
-
-1.2 Adapter Trimming with BBDuk Trim adapters and perform light quality trimming using BBDuk. 
-bbduk.sh in1=raw_data/sample_R1.fastq.gz in2=raw_data/sample_R2.fastq.gz \ out1=trimmed/sample_trimmed_R1.fastq.gz out2=trimmed/sample_trimmed_R2.fastq.gz \ ref=adapters.fa ktrim=r k=23 mink=11 hdist=1 tpe tbo
-
-# 2. Nuclear Enrichment (Removal of plastid reads)
-
-2.1 Run GetOrganelle Assemble the pan plastid genome using GetOrganelle. 
-get_organelle_from_reads.py -1 trimmed/sample_trimmed_R1.fastq.gz -2 trimmed/sample_trimmed_R2.fastq.gz \ -o getorganelle_output -F embplant_pt -R 10 --cpu 8
-
-Concatenate files for a final pan-plastid assembly.
-
-2.2 Extract Pan Plastid Reads Use BBDuk to Extract Pan Plastid Reads Extract reads matching the pan plastid genome from each sample. 
-bbduk.sh in1=trimmed/sample_trimmed_R1.fastq.gz in2=trimmed/sample_trimmed_R2.fastq.gz \ out1=pan_plastid/sample_plastid_R1.fastq.gz out2=pan_plastid/sample_plastid_R2.fastq.gz \ ref=pan_plastid_genome.fa k=31 hdist=1
-
-# 3. SISRS Pipeline
-
-3.1 Organize Samples into Taxonomic Folders Organize your samples into suspected taxonomic folders. 
-mkdir -p SISRS_Project/{Species1,Species2,...} mv sample1.fastq.gz SISRS_Project/Species1/ mv sample2.fastq.gz SISRS_Project/Species2/
-
-3.2 Subsetting and Composite Genome Assembly Subset reads equally among taxa and assemble the composite genome. Specify genome size and target coverage. 10x is advisable and works well for skimmed data. python Read_Subsetter.py -g 4500000000 -c 10 -r Input -o Output Note: Read_Subsetter script expects '.fastq.gz' with the naming convention '_1.fastq.gz/_2.fastq.gz' for forward and reverse reads respectively. If this is not the case for your files, please adjust the script using the below example: # If your input reads are _R1.fastq/_R2.fastq, you could run: sed -i 's/_1.fastq.gz/_R1.fastq/g' Read_Subsetter.py sed -i 's/_2.fastq.gz/_R2.fastq/g' Read_Subsetter.py sed -i 's/fastq.gz/fastq/g' Read_Subsetter.py
-
-3.3 Assemble Composite Genome Using Ray Use Ray for genome assembly. 
-Ray -p SISRS_Project/Composite_reads -o Composite_genome Note: Ray output folders must start with 'Ray_'
-
-3.4 Prepare Composite Genome Use script 'Prepare_Composite.sh' which calls Genome_SiteLengths.py Contains the following order of processing: 
-rename.sh in=SISRS_Project/Composite_Genome/Ray_Dir/Contigs.fasta out=SISRS_Project/Composite_Genome/Ray_Dir/Composite_Genome/contigs.fa prefix=SISRS addprefix=t trd=t
-
-bowtie2-build contigs.fa contigs -p PROCESSOR_COUNT bbmap.sh ref=contigs.fa samtools faidx contigs.fa
-
-python scripts/Genome_SiteLengths.py SISRS_Project/Composite_genome
